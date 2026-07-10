@@ -353,7 +353,7 @@ const SEED = window.PURSE_DATA || { generatedAt: "—", bags: [], history: {}, w
 const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1" };
 const clone = x => JSON.parse(JSON.stringify(x));
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v == null ? fb : JSON.parse(v); } catch (e) { return fb; } };
-const jset = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { alert("Browser storage is full — try removing or shrinking photos."); } };
+const jset = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { uiToast("Browser storage is full — try removing or shrinking photos."); } };
 const today = () => new Date().toISOString().slice(0, 10);
 
 let S = { bags: jget(K.bags, null), history: jget(K.history, null), wishlist: jget(K.wishlist, null) };
@@ -361,6 +361,41 @@ if (S.bags === null) S.bags = clone(SEED.bags || []);
 if (S.history === null) S.history = clone(SEED.history || {});
 if (S.wishlist === null) S.wishlist = clone(SEED.wishlist || []);
 function persist() { jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); }
+
+/* In-page confirm/toast — native confirm()/alert() are blocked in sandboxed
+   viewers (e.g. embedded previews) and flaky on mobile, so we roll our own. */
+function uiConfirm(message, { okText = "Confirm", cancelText = "Cancel", danger = false } = {}) {
+  return new Promise(resolve => {
+    const ov = document.createElement("div");
+    ov.className = "overlay open"; ov.style.zIndex = "60";
+    ov.innerHTML = `<div class="modal" style="max-width:400px" role="alertdialog" aria-modal="true">
+      <div style="padding:24px 24px 10px;font-size:15px;line-height:1.5;color:var(--ink)">${message}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;padding:6px 24px 22px">
+        <button class="btn" data-act="cancel">${cancelText}</button>
+        <button class="btn primary" data-act="ok"${danger ? ' style="background:var(--bad);border-color:var(--bad);color:#fff"' : ""}>${okText}</button>
+      </div></div>`;
+    document.body.appendChild(ov);
+    const done = v => { ov.remove(); document.removeEventListener("keydown", onKey, true); resolve(v); };
+    const onKey = e => {
+      if (e.key === "Escape") { e.stopImmediatePropagation(); done(false); }
+      else if (e.key === "Enter") { e.stopImmediatePropagation(); done(true); }
+    };
+    ov.addEventListener("click", e => {
+      if (e.target === ov) return done(false);
+      const b = e.target.closest("[data-act]"); if (b) done(b.dataset.act === "ok");
+    });
+    document.addEventListener("keydown", onKey, true);
+    ov.querySelector('[data-act="ok"]').focus();
+  });
+}
+function uiToast(message) {
+  const t = document.createElement("div");
+  t.textContent = message;
+  t.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;z-index:70;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .18s";
+  document.body.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = "1"; });
+  setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 220); }, 1900);
+}
 
 /* ---------- helpers ---------- */
 const fmt = n => "$" + Math.round(n).toLocaleString("en-US");
@@ -792,12 +827,15 @@ document.getElementById("form").addEventListener("submit", e => {
 });
 
 /* delete */
-document.getElementById("btnDelete").addEventListener("click", () => {
+document.getElementById("btnDelete").addEventListener("click", async () => {
   const mode = document.getElementById("f-mode").value, id = document.getElementById("f-id").value;
-  if (!id || !confirm("Remove this permanently?")) return;
+  if (!id) return;
+  const what = mode === "bag" ? "bag" : "dream bag";
+  const ok = await uiConfirm(`Delete this ${what} permanently? This can't be undone — to keep a record of a sold bag, use <strong>Archive</strong> instead.`, { okText: "Delete", danger: true });
+  if (!ok) return;
   if (mode === "bag") { S.bags = S.bags.filter(b => b.id !== id); delete S.history[id]; }
   else S.wishlist = S.wishlist.filter(w => w.id !== id);
-  persist(); renderAll(); closeModal();
+  persist(); renderAll(); closeModal(); uiToast("Deleted");
 });
 
 /* archive / restore */
@@ -848,16 +886,17 @@ document.getElementById("fileImport").addEventListener("change", e => {
       if (d.bags) S.bags = d.bags;
       if (d.history) S.history = d.history;
       if (d.wishlist) S.wishlist = d.wishlist;
-      persist(); renderAll(); alert("Imported.");
-    } catch (err) { alert("Couldn't read that file — expected a purse-data.json export."); }
+      persist(); renderAll(); uiToast("Imported");
+    } catch (err) { uiToast("Couldn't read that file — expected a purse-data.json export."); }
   };
   rd.readAsText(file); e.target.value = "";
 });
-document.getElementById("btnReset").addEventListener("click", () => {
-  if (!confirm("Discard local edits and reload the saved file (data.js)?")) return;
+document.getElementById("btnReset").addEventListener("click", async () => {
+  const ok = await uiConfirm("Discard local edits and reload the saved file? Any changes you haven't Exported will be lost.", { okText: "Reset", danger: true });
+  if (!ok) return;
   localStorage.removeItem(K.bags); localStorage.removeItem(K.history); localStorage.removeItem(K.wishlist);
   S = { bags: clone(SEED.bags || []), history: clone(SEED.history || {}), wishlist: clone(SEED.wishlist || []) };
-  renderAll();
+  renderAll(); uiToast("Reset to saved file");
 });
 
 renderAll();
