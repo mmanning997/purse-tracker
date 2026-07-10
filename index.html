@@ -184,11 +184,12 @@
       <h1>The <em>Handbag</em> Portfolio</h1>
     </div>
     <div class="tools">
-      <button class="btn ghost" id="btnImport">Import</button>
+      <button class="btn ghost" id="btnTemplate" title="Download a blank CSV to fill in">CSV template</button>
+      <button class="btn ghost" id="btnImport" title="Import a CSV of bags or a JSON backup">Import</button>
       <button class="btn ghost" id="btnExport">Export</button>
       <button class="btn ghost" id="btnReset" title="Discard local edits, reload the saved file">Reset</button>
       <button class="btn primary" id="btnAdd">+ Add bag</button>
-      <input type="file" id="fileImport" accept="application/json" hidden>
+      <input type="file" id="fileImport" accept=".csv,.json,text/csv,application/json" hidden>
     </div>
   </header>
 
@@ -881,15 +882,116 @@ document.getElementById("fileImport").addEventListener("change", e => {
   const file = e.target.files[0]; if (!file) return;
   const rd = new FileReader();
   rd.onload = ev => {
-    try {
-      const d = JSON.parse(ev.target.result);
-      if (d.bags) S.bags = d.bags;
-      if (d.history) S.history = d.history;
-      if (d.wishlist) S.wishlist = d.wishlist;
-      persist(); renderAll(); uiToast("Imported");
-    } catch (err) { uiToast("Couldn't read that file — expected a purse-data.json export."); }
+    const text = ev.target.result;
+    const looksJSON = /^\s*[[{]/.test(text);
+    const isCSV = /\.csv$/i.test(file.name) || (!/\.json$/i.test(file.name) && !looksJSON);
+    if (isCSV) {
+      try {
+        const added = importBagsCSV(text);
+        if (!added) { uiToast("No bags found — check the header row (needs at least brand & model)."); return; }
+        persist(); renderAll(); uiToast(`Imported ${added} bag${added === 1 ? "" : "s"} from CSV`);
+      } catch (err) { uiToast("Couldn't read that CSV — check the header row."); }
+    } else {
+      try {
+        const d = JSON.parse(text);
+        if (d.bags) S.bags = d.bags;
+        if (d.history) S.history = d.history;
+        if (d.wishlist) S.wishlist = d.wishlist;
+        persist(); renderAll(); uiToast("Imported backup");
+      } catch (err) { uiToast("Couldn't read that file — expected a CSV or a purse-data.json export."); }
+    }
   };
   rd.readAsText(file); e.target.value = "";
+});
+
+/* ---------- CSV import ---------- */
+function parseCSV(text) {
+  const rows = []; let row = [], field = "", inQ = false;
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else if (c === '"') inQ = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  // drop blank rows and #comment rows
+  return rows.filter(r => r.some(c => c.trim() !== "") && !r[0].trim().startsWith("#"));
+}
+const CSV_ALIASES = {
+  brand: ["brand", "maker", "designer", "make"],
+  model: ["model", "name", "style", "bag", "bag name"],
+  specs: ["specs", "spec", "color", "colour", "details", "description", "material", "leather/hardware", "hardware"],
+  condition: ["condition", "cond"],
+  authenticated: ["authenticated", "auth", "authentic", "verified"],
+  pricePaid: ["pricepaid", "price paid", "paid", "purchase price", "cost", "price"],
+  acquiredDate: ["acquireddate", "acquired", "date acquired", "purchased", "purchase date", "date bought", "date"],
+  manualValue: ["manualvalue", "current value", "value", "resale", "resale value", "est resale", "estimated value", "worth", "current resale value"],
+  ebayQuery: ["ebayquery", "ebay query", "ebay", "query", "search"],
+  notes: ["notes", "note", "comments", "comment"],
+};
+const csvBool = v => /^(y|yes|true|1|auth|authenticated|authentic|verified)$/i.test((v || "").trim());
+const csvMoney = v => numOrNull((v || "").replace(/[$,\s]/g, ""));
+function csvCondition(v) {
+  const s = (v || "").trim().toLowerCase();
+  if (s.startsWith("exc") || s.startsWith("mint") || s.startsWith("prist") || s.startsWith("new") || s.includes("like new")) return "Excellent";
+  if (s.startsWith("fair") || s.startsWith("poor") || s.startsWith("worn")) return "Fair";
+  if (s.startsWith("good") || s.startsWith("very") || s.startsWith("gently")) return "Good";
+  return "Good";
+}
+function csvDate(v) {
+  const s = (v || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // M/D/YYYY
+  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  if (/^\d{4}$/.test(s)) return `${s}-01-01`;
+  return null;
+}
+function importBagsCSV(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return 0;
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const col = key => header.findIndex(h => CSV_ALIASES[key].includes(h));
+  const idx = {}; for (const k in CSV_ALIASES) idx[k] = col(k);
+  if (idx.brand < 0 && idx.model < 0) throw new Error("no brand/model column");
+  let added = 0;
+  for (const r of rows.slice(1)) {
+    const get = k => idx[k] >= 0 ? (r[idx[k]] || "").trim() : "";
+    const brand = get("brand"), model = get("model");
+    if (!brand && !model) continue;
+    const bag = {
+      id: slug(brand || "bag", model || "item"),
+      brand, model,
+      specs: get("specs"),
+      condition: csvCondition(get("condition")),
+      authenticated: csvBool(get("authenticated")),
+      pricePaid: csvMoney(get("pricePaid")),
+      acquiredDate: csvDate(get("acquiredDate")),
+      manualValue: csvMoney(get("manualValue")),
+      ebayQuery: get("ebayQuery"),
+      notes: get("notes"),
+      photo: null, archived: false, soldPrice: null, soldDate: null,
+    };
+    S.bags.push(bag);
+    if (bag.manualValue != null) recordSnapshot(bag.id, bag.manualValue);
+    added++;
+  }
+  return added;
+}
+const CSV_TEMPLATE = `# Fill in one bag per row. Only brand and model are required — leave others blank if unknown.
+# authenticated = yes/no · dates as YYYY-MM-DD · Delete this example row before importing.
+brand,model,specs,condition,authenticated,price paid,date acquired,current value,ebay query,notes
+Chanel,Classic Flap Medium,"black caviar, gold hardware",Excellent,yes,6800,2023-05-14,11000,Chanel Classic Flap Medium caviar,example row — delete me
+`;
+document.getElementById("btnTemplate").addEventListener("click", () => {
+  const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "purse-template.csv"; a.click();
+  URL.revokeObjectURL(a.href);
 });
 document.getElementById("btnReset").addEventListener("click", async () => {
   const ok = await uiConfirm("Discard local edits and reload the saved file? Any changes you haven't Exported will be lost.", { okText: "Reset", danger: true });

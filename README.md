@@ -53,6 +53,27 @@ Archived bags carry `archived: true`, plus optional `soldPrice` / `soldDate`.
 `refresh.py` skips them on `--fetch` (no comps needed) and reports realized
 gains in its summary.
 
+## Importing a CSV (bulk add)
+
+Have Ashley's bags in a spreadsheet? **CSV template** downloads a blank
+`purse-template.csv`; fill it in and hit **Import** (it auto-detects CSV vs. a
+JSON backup). CSV rows are *added* to the current collection.
+
+Columns (only `brand` + `model` required; header names are flexible/case-
+insensitive, `$` and commas in prices are fine):
+
+```
+brand,model,specs,condition,authenticated,price paid,date acquired,current value,ebay query,notes
+```
+
+- `condition` → Excellent / Good / Fair (mint/pristine/new map to Excellent).
+- `authenticated` → yes/no. Dates → `YYYY-MM-DD` (also accepts `M/D/YYYY` or a
+  bare year). Lines starting with `#` are ignored.
+- Photos can't come via CSV — add them per bag in the dashboard.
+
+After importing, **Export** + `refresh.py --import` to make it live everywhere
+(see below).
+
 ## Adding & editing — no JSON required
 
 Everything is editable in the browser:
