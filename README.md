@@ -1,8 +1,30 @@
 # Purse Resale Tracker
 
-A local dashboard of Ashley's handbag collection and each bag's current resale
-value — treated like an investment portfolio (paid vs. current, gain/loss,
-value trend over time).
+A dashboard of Ashley's handbag collection and each bag's current resale value —
+treated like an investment portfolio (paid vs. current, gain/loss, value trend
+over time).
+
+**Live site:** https://mmanning997.github.io/purse-tracker/ (public but
+`noindex` — reachable only via the link; search engines skip it).
+
+## Deploy an update
+
+The site is the repo root served by GitHub Pages, so any push to `main` updates
+it. Typical flow after changing the collection:
+
+```
+# option A — you edited data/bags.json (or wishlist.json) by hand:
+python3 refresh.py
+
+# option B — you edited in the browser and hit Export:
+python3 refresh.py --import ~/Downloads/purse-data.json
+
+git add -A && git commit -m "update collection" && git push
+```
+
+Pages redeploys within a minute. Note: browser edits live in each device's
+localStorage until you Export + commit — that's what makes them permanent and
+visible on every device.
 
 ## Views (tabs)
 
