@@ -1,0 +1,6 @@
+{
+  "appId": "YOUR-EBAY-APP-ID-CLIENT-ID",
+  "certId": "YOUR-EBAY-CERT-ID-CLIENT-SECRET",
+  "marketplace": "EBAY_US",
+  "useSold": false
+}
