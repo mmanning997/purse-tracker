@@ -351,7 +351,7 @@
 <script>
 /* ---------- data + persistence ---------- */
 const SEED = window.PURSE_DATA || { generatedAt: "—", bags: [], history: {}, wishlist: [] };
-const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1" };
+const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1", backup: "purse.backup.v1" };
 const clone = x => JSON.parse(JSON.stringify(x));
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v == null ? fb : JSON.parse(v); } catch (e) { return fb; } };
 const jset = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { uiToast("Browser storage is full — try removing or shrinking photos."); } };
@@ -389,13 +389,37 @@ function uiConfirm(message, { okText = "Confirm", cancelText = "Cancel", danger 
     ov.querySelector('[data-act="ok"]').focus();
   });
 }
-function uiToast(message) {
+function uiToast(message, opts = {}) {
+  const { actionLabel = null, onAction = null, duration = 1900 } = opts;
   const t = document.createElement("div");
-  t.textContent = message;
-  t.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;z-index:70;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .18s";
+  t.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;z-index:70;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .18s;display:flex;align-items:center;gap:14px;max-width:calc(100vw - 32px)";
+  const span = document.createElement("span"); span.textContent = message; t.appendChild(span);
+  let timer;
+  const dismiss = () => { clearTimeout(timer); t.style.opacity = "0"; setTimeout(() => t.remove(), 220); };
+  if (actionLabel) {
+    const btn = document.createElement("button");
+    btn.textContent = actionLabel;
+    btn.style.cssText = "background:transparent;border:1px solid currentColor;color:inherit;border-radius:999px;padding:3px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;flex:none";
+    btn.addEventListener("click", () => { dismiss(); if (onAction) onAction(); });
+    t.appendChild(btn);
+  }
   document.body.appendChild(t);
   requestAnimationFrame(() => { t.style.opacity = "1"; });
-  setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 220); }, 1900);
+  timer = setTimeout(dismiss, duration);
+}
+
+/* Rolling backup so a Reset/Import can always be undone. */
+function saveBackup(reason) {
+  try {
+    localStorage.setItem(K.backup, JSON.stringify({ ts: new Date().toISOString(), reason, bags: S.bags, history: S.history, wishlist: S.wishlist }));
+  } catch (e) { /* best-effort */ }
+}
+function restoreBackup() {
+  const b = jget(K.backup, null);
+  if (!b || !b.bags) { uiToast("No backup found to restore"); return; }
+  S = { bags: b.bags, history: b.history || {}, wishlist: b.wishlist || [] };
+  persist(); renderAll();
+  uiToast(`Restored ${b.bags.length} bag${b.bags.length === 1 ? "" : "s"} from backup`);
 }
 
 /* ---------- helpers ---------- */
@@ -887,17 +911,21 @@ document.getElementById("fileImport").addEventListener("change", e => {
     const isCSV = /\.csv$/i.test(file.name) || (!/\.json$/i.test(file.name) && !looksJSON);
     if (isCSV) {
       try {
+        saveBackup("csv-import");
         const added = importBagsCSV(text);
         if (!added) { uiToast("No bags found — check the header row (needs at least brand & model)."); return; }
-        persist(); renderAll(); uiToast(`Imported ${added} bag${added === 1 ? "" : "s"} from CSV`);
+        persist(); renderAll();
+        uiToast(`Imported ${added} bag${added === 1 ? "" : "s"} from CSV`, { actionLabel: "Undo", onAction: restoreBackup, duration: 12000 });
       } catch (err) { uiToast("Couldn't read that CSV — check the header row."); }
     } else {
       try {
         const d = JSON.parse(text);
+        saveBackup("import");
         if (d.bags) S.bags = d.bags;
         if (d.history) S.history = d.history;
         if (d.wishlist) S.wishlist = d.wishlist;
-        persist(); renderAll(); uiToast("Imported backup");
+        persist(); renderAll();
+        uiToast("Imported backup", { actionLabel: "Undo", onAction: restoreBackup, duration: 12000 });
       } catch (err) { uiToast("Couldn't read that file — expected a CSV or a purse-data.json export."); }
     }
   };
@@ -994,11 +1022,13 @@ document.getElementById("btnTemplate").addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 document.getElementById("btnReset").addEventListener("click", async () => {
-  const ok = await uiConfirm("Discard local edits and reload the saved file? Any changes you haven't Exported will be lost.", { okText: "Reset", danger: true });
+  const ok = await uiConfirm("Reset to the saved file? This replaces the bags in this browser. A backup is kept — you can Undo right after.", { okText: "Reset", danger: true });
   if (!ok) return;
+  saveBackup("reset");
   localStorage.removeItem(K.bags); localStorage.removeItem(K.history); localStorage.removeItem(K.wishlist);
   S = { bags: clone(SEED.bags || []), history: clone(SEED.history || {}), wishlist: clone(SEED.wishlist || []) };
-  renderAll(); uiToast("Reset to saved file");
+  renderAll();
+  uiToast("Reset to saved file", { actionLabel: "Undo", onAction: restoreBackup, duration: 12000 });
 });
 
 renderAll();
