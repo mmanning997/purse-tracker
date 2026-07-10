@@ -894,12 +894,49 @@ overlay.addEventListener("click", e => { if (e.target === overlay) closeModal();
 document.addEventListener("keydown", e => { if (e.key === "Escape" && overlay.classList.contains("open")) closeModal(); });
 
 /* ---------- export / import / reset ---------- */
+function exportBundleJSON() {
+  return JSON.stringify({ generatedAt: today(), bags: S.bags, history: S.history, wishlist: S.wishlist }, null, 2);
+}
+function downloadJSON(json) {
+  try {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "purse-data.json"; a.style.display = "none";
+    document.body.appendChild(a);           // some browsers require it in the DOM
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500); // revoke LATER, not instantly
+    return true;
+  } catch (e) { return false; }
+}
+async function copyToClipboard(text, ta) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) { try { ta.focus(); ta.select(); return document.execCommand("copy"); } catch (_) { return false; } }
+}
 document.getElementById("btnExport").addEventListener("click", () => {
-  const bundle = { generatedAt: today(), bags: S.bags, history: S.history, wishlist: S.wishlist };
-  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "purse-data.json"; a.click();
-  URL.revokeObjectURL(a.href);
+  const json = exportBundleJSON();
+  const ov = document.createElement("div");
+  ov.className = "overlay open"; ov.style.zIndex = "60";
+  ov.innerHTML = `<div class="modal" style="max-width:580px">
+    <div class="modal-head"><h3>Save your data</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+    <div style="padding:0 24px 4px;color:var(--ink-soft);font-size:13.5px;line-height:1.5">
+      ${S.bags.length} bags · ${S.wishlist.length} wishlist. <strong>Download the file</strong> (then it's in your Downloads), or <strong>Copy</strong> and paste it to Claude to save.</div>
+    <div style="display:flex;gap:8px;padding:12px 24px 6px;flex-wrap:wrap">
+      <button class="btn primary" data-dl>⤓ Download file</button>
+      <button class="btn" data-copy>Copy to clipboard</button>
+    </div>
+    <div style="padding:6px 24px 22px">
+      <textarea data-txt readonly style="width:100%;height:130px;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);white-space:pre;overflow:auto"></textarea>
+      <div class="hint" style="margin-top:6px">Tip: if Download does nothing, use Copy (or tap the box, Select All, Copy) and paste it here in chat.</div>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ta = ov.querySelector("[data-txt]"); ta.value = json;
+  const close = () => ov.remove();
+  ov.addEventListener("click", e => { if (e.target === ov) close(); });
+  ov.querySelector("[data-x]").onclick = close;
+  ov.querySelector("[data-dl]").onclick = () => { const ok = downloadJSON(json); uiToast(ok ? "Downloaded to your Downloads folder" : "Download blocked here — use Copy instead"); };
+  ov.querySelector("[data-copy]").onclick = async () => { const ok = await copyToClipboard(json, ta); uiToast(ok ? "Copied — paste it to Claude to save" : "Couldn't auto-copy — select the text and copy manually"); };
+  ta.focus(); ta.select();
 });
 document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileImport").click());
 document.getElementById("fileImport").addEventListener("change", e => {
