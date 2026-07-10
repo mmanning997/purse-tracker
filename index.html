@@ -923,8 +923,8 @@ function parseCSV(text) {
   return rows.filter(r => r.some(c => c.trim() !== "") && !r[0].trim().startsWith("#"));
 }
 const CSV_ALIASES = {
-  brand: ["brand", "maker", "designer", "make"],
-  model: ["model", "name", "style", "bag", "bag name"],
+  brand: ["brand", "brand name", "maker", "designer", "make", "house"],
+  model: ["model", "model name", "name", "style", "make/style", "style name", "bag", "bag name"],
   specs: ["specs", "spec", "color", "colour", "details", "description", "material", "leather/hardware", "hardware"],
   condition: ["condition", "cond"],
   authenticated: ["authenticated", "auth", "authentic", "verified"],
