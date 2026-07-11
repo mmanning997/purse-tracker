@@ -89,6 +89,9 @@
   .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; min-width: 720px; }
   thead th { text-align: left; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  thead th[data-sort] { cursor: pointer; user-select: none; }
+  thead th[data-sort]:hover, thead th.sorted { color: var(--ink); }
+  td .designer { font-weight: 600; color: var(--ink); }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tbody td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 14px; }
   tbody tr:last-child td { border-bottom: none; }
@@ -245,8 +248,8 @@
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Bag</th><th>Condition</th><th class="num">Paid</th>
-          <th class="num">Est. Resale</th><th>Value Trend</th><th class="num">Gain / Loss</th>
+          <th data-sort="bag">Bag</th><th data-sort="designer">Designer</th><th data-sort="condition">Condition</th><th class="num" data-sort="paid">Paid</th>
+          <th class="num" data-sort="value">Est. Resale</th><th>Value Trend</th><th class="num" data-sort="gl">Gain / Loss</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -564,6 +567,36 @@ function renderKPIs() {
 
 /* ---------- table ---------- */
 let tableFilter = "all";
+let sortKey = null, sortDir = 1;   // null = original order
+const SORT_LABELS = { bag: "Bag", designer: "Designer", condition: "Condition", paid: "Paid", value: "Est. Resale", gl: "Gain / Loss" };
+function sortRows(rows) {
+  if (!sortKey) return rows;
+  const numeric = sortKey === "paid" || sortKey === "value" || sortKey === "gl" || sortKey === "condition";
+  const keyval = r => {
+    switch (sortKey) {
+      case "designer": return (r.b.brand || "").toLowerCase();
+      case "bag": return (r.b.model || "").toLowerCase();
+      case "condition": return ({ Excellent: 0, Good: 1, Fair: 2 })[r.b.condition] ?? 3;
+      case "paid": return r.paid;
+      case "value": return r.val;
+      case "gl": return r.diff;
+    }
+  };
+  return [...rows].sort((a, z) => {
+    const av = keyval(a), zv = keyval(z), an = av == null, zn = zv == null;
+    if (an && zn) return 0;
+    if (an) return 1;            // bags missing this value always sink to the bottom
+    if (zn) return -1;
+    return (numeric ? av - zv : String(av).localeCompare(zv)) * sortDir;
+  });
+}
+function paintSort() {
+  document.querySelectorAll('#panel-table thead th[data-sort]').forEach(th => {
+    const active = th.dataset.sort === sortKey;
+    th.textContent = SORT_LABELS[th.dataset.sort] + (active ? (sortDir === 1 ? " ↑" : " ↓") : "");
+    th.classList.toggle("sorted", active);
+  });
+}
 function renderTable() {
   const rows = activeBags().map(b => {
     const val = currentValue(b), paid = b.pricePaid ?? null;
@@ -571,9 +604,9 @@ function renderTable() {
     const dir = diff == null ? null : (diff >= 0 ? "up" : "down");
     return { b, val, paid, diff, dir };
   });
-  const shown = rows.filter(r => tableFilter === "all" ? true : r.dir === tableFilter);
+  const shown = sortRows(rows.filter(r => tableFilter === "all" ? true : r.dir === tableFilter));
   const body = document.getElementById("rows");
-  if (!rows.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No bags in the collection — hit <strong>+ Add bag</strong> to start, or check the <strong>Archived</strong> tab.</td></tr>`; return; }
+  if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="empty">No bags in the collection — hit <strong>+ Add bag</strong> to start, or check the <strong>Archived</strong> tab.</td></tr>`; return; }
   body.innerHTML = shown.map(({ b, val, paid, diff, dir }) => {
     const cc = CONDCLASS[b.condition] || "fair";
     const auth = b.authenticated ? '<span class="auth">✓ Authenticated</span>' : '<span class="auth no">Unverified</span>';
@@ -588,11 +621,12 @@ function renderTable() {
     const sw = b.photo ? `background-image:url('${b.photo}')` : `background:${brandColor(b.brand)}`;
     return `<tr data-id="${b.id}">
       <td><div class="bag"><span class="swatch" style="${sw}">${b.photo ? "" : initial}</span>
-        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}</span><br><span class="brand">${b.brand}</span>${b.specs ? ` · <span class="specs">${b.specs}</span>` : ""}</span></div></td>
+        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}</span>${b.specs ? `<br><span class="specs">${b.specs}</span>` : ""}</span></div></td>
+      <td><span class="designer">${b.brand || "—"}</span></td>
       <td><div class="conds"><span class="pill ${cc}">${b.condition || "—"}</span>${auth}</div></td>
       <td class="num">${paidCell}</td><td class="num">${valCell}</td>
       <td>${spark(seriesFor(b))}</td><td class="num">${glCell}</td></tr>`;
-  }).join("") || `<tr><td colspan="6" class="empty">No bags in this view.</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="empty">No bags in this view.</td></tr>`;
 }
 
 /* ---------- lookbook ---------- */
@@ -853,6 +887,15 @@ document.getElementById("filters").addEventListener("click", e => {
   document.querySelectorAll("#filters .chip").forEach(c => c.classList.remove("active"));
   chip.classList.add("active"); tableFilter = chip.dataset.f; renderTable();
 });
+// click a column header to sort; click again to reverse
+document.querySelector("#panel-table thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-sort]"); if (!th) return;
+  const k = th.dataset.sort;
+  if (sortKey === k) sortDir = -sortDir;
+  else { sortKey = k; sortDir = (k === "value" || k === "paid" || k === "gl") ? -1 : 1; }  // money defaults high→low
+  renderTable(); paintSort();
+});
+paintSort();
 
 /* ---------- open editor from rows/cards ---------- */
 document.getElementById("rows").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) openBagForm(tr.dataset.id); });
