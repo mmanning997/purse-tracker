@@ -6,7 +6,7 @@
     "specs": "Color: Amazone",
     "condition": "Excellent",
     "authenticated": true,
-    "pricePaid": 6000,
+    "pricePaid": null,
     "acquiredDate": null,
     "manualValue": null,
     "ebayQuery": "Celine Belt Bag Amazone",
@@ -15,7 +15,7 @@
     "archived": false,
     "soldPrice": null,
     "soldDate": null,
-    "favorite": true
+    "favorite": false
   },
   {
     "id": "prada-woven-basketweave-tote-bag-02",
@@ -33,16 +33,16 @@
     "archived": false,
     "soldPrice": null,
     "soldDate": null,
-    "favorite": true
+    "favorite": false
   },
   {
     "id": "chanel-vintage-lizard-envelope-flap-bag-03",
     "brand": "Chanel",
     "model": "Vintage Lizard Envelope Flap Bag",
     "specs": "",
-    "condition": "Good",
-    "authenticated": false,
-    "pricePaid": null,
+    "condition": "Excellent",
+    "authenticated": true,
+    "pricePaid": 6000,
     "acquiredDate": null,
     "manualValue": null,
     "ebayQuery": "Chanel Vintage Lizard Envelope Flap Bag",
@@ -51,7 +51,7 @@
     "archived": false,
     "soldPrice": null,
     "soldDate": null,
-    "favorite": false
+    "favorite": true
   },
   {
     "id": "longchamp-x-jeremy-scott-le-pliage-humpty-dumpty-travel-tote-04",
