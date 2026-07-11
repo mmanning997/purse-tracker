@@ -130,6 +130,36 @@
   /* Insights */
   .insights { display: grid; grid-template-columns: 300px 1fr; gap: 20px; padding: 22px; }
   .chart-card h3 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 14px; font-weight: 600; }
+  .card-sub { text-transform: none; letter-spacing: 0; color: var(--ink-faint); font-weight: 400; }
+  .insights-extra { padding: 0 22px 24px; display: grid; gap: 24px; }
+  .insights-extra .chart-card { border-top: 1px solid var(--line); padding-top: 20px; }
+  /* Ashley's Houses */
+  .houses { display: flex; flex-direction: column; gap: 12px; }
+  .house { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 13px; }
+  .house .rank { font-family: Georgia, serif; font-size: 15px; color: var(--ink-faint); text-align: center; }
+  .house .h-main { min-width: 0; }
+  .house .h-name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .house .h-name .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .house .h-bar { height: 6px; border-radius: 999px; background: var(--surface-2); margin-top: 7px; overflow: hidden; }
+  .house .h-bar > span { display: block; height: 100%; border-radius: 999px; }
+  .house .h-meta { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+  .house .h-val { font-family: Georgia, serif; font-size: 16px; text-align: right; }
+  .house .h-pct { font-size: 11.5px; color: var(--ink-faint); text-align: right; }
+  /* Standings */
+  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 15px; }
+  .tile .t-label { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-faint); }
+  .tile .t-bag { font-weight: 600; margin: 9px 0 1px; font-size: 14px; line-height: 1.25; }
+  .tile .t-brand { font-size: 12px; color: var(--ink-soft); }
+  .tile .t-stat { font-family: Georgia, serif; font-size: 18px; margin-top: 9px; }
+  /* Achievements */
+  .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+  .badge { display: flex; gap: 11px; align-items: center; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+  .badge.unlocked { border-color: var(--accent); }
+  .badge.locked { opacity: .4; filter: grayscale(1); }
+  .badge .b-emoji { font-size: 22px; flex: none; line-height: 1; }
+  .badge .b-name { font-weight: 600; font-size: 13px; }
+  .badge .b-desc { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; line-height: 1.3; }
   .donut-wrap { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
   .legend { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
   .legend .li { display: flex; align-items: center; gap: 8px; }
@@ -245,6 +275,20 @@
         <div class="chart-note" id="lineNote"></div>
       </div>
     </div>
+    <div class="insights-extra">
+      <div class="chart-card">
+        <h3>Ashley's Houses <span class="card-sub">— brand loyalty by resale value</span></h3>
+        <div class="houses" id="houses"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Standings</h3>
+        <div class="board" id="leaderboards"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Achievements <span class="card-sub" id="achvCount"></span></h3>
+        <div class="badges" id="achievements"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Wishlist -->
@@ -296,8 +340,9 @@
       <div class="field row2 bag-only">
         <div class="col"><label for="f-condition">Condition</label>
           <select id="f-condition"><option>Excellent</option><option>Good</option><option>Fair</option></select></div>
-        <div class="col" style="display:flex;align-items:flex-end;padding-bottom:9px;">
-          <label class="check"><input type="checkbox" id="f-auth"> Authenticated</label></div>
+        <div class="col" style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px;padding-bottom:6px;">
+          <label class="check"><input type="checkbox" id="f-auth"> Authenticated</label>
+          <label class="check"><input type="checkbox" id="f-fav"> ⭐ Favorite</label></div>
       </div>
 
       <div class="field row2 bag-only">
@@ -530,7 +575,7 @@ function renderTable() {
     const sw = b.photo ? `background-image:url('${b.photo}')` : `background:${brandColor(b.brand)}`;
     return `<tr data-id="${b.id}">
       <td><div class="bag"><span class="swatch" style="${sw}">${b.photo ? "" : initial}</span>
-        <span><span class="name">${b.model}</span><br><span class="brand">${b.brand}</span>${b.specs ? ` · <span class="specs">${b.specs}</span>` : ""}</span></div></td>
+        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}</span><br><span class="brand">${b.brand}</span>${b.specs ? ` · <span class="specs">${b.specs}</span>` : ""}</span></div></td>
       <td><div class="conds"><span class="pill ${cc}">${b.condition || "—"}</span>${auth}</div></td>
       <td class="num">${paidCell}</td><td class="num">${valCell}</td>
       <td>${spark(seriesFor(b))}</td><td class="num">${glCell}</td></tr>`;
@@ -551,7 +596,7 @@ function renderLookbook() {
     const gl = diff != null ? `<span class="delta ${dir}" style="font-size:12.5px">${dir === "up" ? "▲" : "▼"} ${fmt(Math.abs(diff))}</span>` : "";
     return `<div class="card" data-id="${b.id}">
       <div class="photo" ${photo}>${b.photo ? "" : `<span class="mono">${initial}</span>`}<span class="tag">${b.condition || ""}</span></div>
-      <div class="body"><div class="name">${b.model}</div><div class="brand">${b.brand}</div>
+      <div class="body"><div class="name">${b.model}${b.favorite ? " ⭐" : ""}</div><div class="brand">${b.brand}</div>
         <div class="row"><span class="price">${val != null ? fmt(val) : "—"}</span>${gl}</div></div></div>`;
   }).join("");
 }
@@ -609,6 +654,81 @@ function renderInsights() {
     const first = series[0].value, last = series[series.length - 1].value, ch = last - first;
     note.innerHTML = `<span class="delta ${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"} ${fmt(Math.abs(ch))}</span> since ${series[0].date}`;
   } else note.textContent = "Value history builds as you update the collection.";
+
+  renderHouses(); renderLeaderboards(); renderAchievements();
+}
+function renderHouses() {
+  const el = document.getElementById("houses"); if (!el) return;
+  const houses = {};
+  for (const b of activeBags()) {
+    const h = houses[b.brand] || (houses[b.brand] = { brand: b.brand, count: 0, resale: 0, invested: 0, fav: false });
+    h.count++; h.resale += currentValue(b) || 0; h.invested += b.pricePaid || 0;
+    if (b.favorite) h.fav = true;
+  }
+  const list = Object.values(houses).sort((a, b) => b.resale - a.resale || b.count - a.count);
+  if (!list.length) { el.innerHTML = `<div class="empty">Add bags to see which houses Ashley leans into.</div>`; return; }
+  const total = list.reduce((a, h) => a + h.resale, 0) || 1;
+  const max = Math.max(...list.map(h => h.resale)) || 1;
+  el.innerHTML = list.map((h, i) => `
+    <div class="house">
+      <div class="rank">${i + 1}</div>
+      <div class="h-main">
+        <div class="h-name"><span class="sw" style="background:${brandColor(h.brand)}"></span>${h.brand}${h.fav ? ` <span title="has a favorite">⭐</span>` : ""}</div>
+        <div class="h-bar"><span style="width:${Math.max(4, h.resale / max * 100)}%;background:${brandColor(h.brand)}"></span></div>
+        <div class="h-meta">${h.count} bag${h.count === 1 ? "" : "s"}${h.invested ? ` · ${fmt(h.invested)} invested` : ""}</div>
+      </div>
+      <div><div class="h-val">${fmt(h.resale)}</div><div class="h-pct">${Math.round(h.resale / total * 100)}% of value</div></div>
+    </div>`).join("");
+}
+function renderLeaderboards() {
+  const el = document.getElementById("leaderboards"); if (!el) return;
+  const rows = activeBags().map(b => {
+    const val = currentValue(b), paid = b.pricePaid ?? null;
+    return { b, val, paid, diff: (val != null && paid != null) ? val - paid : null };
+  });
+  const withVal = rows.filter(r => r.val != null);
+  if (!withVal.length) { el.innerHTML = `<div class="empty">Standings appear once eBay comps are in.</div>`; return; }
+  const priced = rows.filter(r => r.diff != null);
+  const tile = (label, emoji, bag, stat) => bag ? `<div class="tile"><div class="t-label">${emoji} ${label}</div><div class="t-bag">${bag.model}</div><div class="t-brand">${bag.brand}</div><div class="t-stat">${stat}</div></div>` : "";
+  const tiles = [];
+  const mv = [...withVal].sort((a, b) => b.val - a.val)[0];
+  tiles.push(tile("Most Valuable", "💎", mv.b, fmt(mv.val)));
+  if (priced.length) {
+    const tg = [...priced].sort((a, b) => b.diff - a.diff)[0];
+    tiles.push(tile("Top Gainer", "📈", tg.b, `<span class="delta ${tg.diff >= 0 ? "up" : "down"}">${tg.diff >= 0 ? "▲" : "▼"} ${fmt(Math.abs(tg.diff))}</span>`));
+    const br = [...priced].sort((a, b) => (b.diff / b.paid) - (a.diff / a.paid))[0];
+    const pctv = br.paid ? Math.round(br.diff / br.paid * 100) : 0;
+    tiles.push(tile("Best Return", "🚀", br.b, `<span class="delta ${pctv >= 0 ? "up" : "down"}">${pctv >= 0 ? "+" : ""}${pctv}%</span>`));
+  }
+  const dated = activeBags().filter(b => b.acquiredDate).sort((a, b) => a.acquiredDate < b.acquiredDate ? -1 : 1)[0];
+  if (dated) {
+    const yrs = (Date.now() - new Date(dated.acquiredDate).getTime()) / 3.15576e10;
+    tiles.push(tile("Longest Held", "🕰", dated, yrs >= 1 ? `${yrs.toFixed(1)} yrs` : `${Math.max(1, Math.round(yrs * 12))} mo`));
+  }
+  el.innerHTML = tiles.join("");
+}
+function renderAchievements() {
+  const el = document.getElementById("achievements"); if (!el) return;
+  const bags = activeBags();
+  const brands = new Set(bags.map(b => b.brand));
+  const totalResale = bags.reduce((a, b) => a + (currentValue(b) || 0), 0);
+  const maxVal = bags.reduce((a, b) => Math.max(a, currentValue(b) || 0), 0);
+  const hasDouble = bags.some(b => b.pricePaid && currentValue(b) != null && currentValue(b) >= 2 * b.pricePaid);
+  const now = Date.now();
+  const longHeld = bags.some(b => b.acquiredDate && (now - new Date(b.acquiredDate).getTime()) / 3.15576e10 >= 5);
+  const defs = [
+    { emoji: "🖤", name: "Chanel Club", desc: "Own a Chanel", on: brands.has("Chanel") },
+    { emoji: "💰", name: "Five-Figure Club", desc: "$10k+ in resale", on: totalResale >= 10000 },
+    { emoji: "🦄", name: "Grail Secured", desc: "A bag worth $5k+", on: maxVal >= 5000 },
+    { emoji: "🏛", name: "Well-Housed", desc: "5+ different houses", on: brands.size >= 5 },
+    { emoji: "👜", name: "Curator", desc: "10+ bags", on: bags.length >= 10 },
+    { emoji: "💎", name: "Diamond Hands", desc: "A bag up 2× vs paid", on: hasDouble },
+    { emoji: "🕰", name: "Long Hauler", desc: "Held a bag 5+ years", on: longHeld },
+    { emoji: "⭐", name: "Playing Favorites", desc: "Star a favorite bag", on: bags.some(b => b.favorite) },
+  ];
+  const unlocked = defs.filter(d => d.on).length;
+  const cnt = document.getElementById("achvCount"); if (cnt) cnt.textContent = `— ${unlocked} of ${defs.length} unlocked`;
+  el.innerHTML = defs.map(d => `<div class="badge ${d.on ? "unlocked" : "locked"}"><span class="b-emoji">${d.on ? d.emoji : "🔒"}</span><div><div class="b-name">${d.name}</div><div class="b-desc">${d.desc}</div></div></div>`).join("");
 }
 function areaChart(series) {
   if (series.length < 2) return `<div class="empty">Not enough history yet — values plot here as they change over time.</div>`;
@@ -752,6 +872,7 @@ function openBagForm(id) {
   document.getElementById("f-specs").value = b?.specs || "";
   document.getElementById("f-condition").value = b?.condition || "Excellent";
   document.getElementById("f-auth").checked = !!b?.authenticated;
+  document.getElementById("f-fav").checked = !!b?.favorite;
   document.getElementById("f-paid").value = b?.pricePaid ?? "";
   document.getElementById("f-acquired").value = b?.acquiredDate || "";
   document.getElementById("f-value").value = b?.manualValue ?? "";
@@ -826,6 +947,7 @@ document.getElementById("form").addEventListener("submit", e => {
       brand, model, specs,
       condition: document.getElementById("f-condition").value,
       authenticated: document.getElementById("f-auth").checked,
+      favorite: document.getElementById("f-fav").checked,
       pricePaid: numOrNull(document.getElementById("f-paid").value),
       acquiredDate: document.getElementById("f-acquired").value || null,
       manualValue: numOrNull(document.getElementById("f-value").value),
