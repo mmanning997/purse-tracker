@@ -405,7 +405,7 @@
     "favorite": false,
     "pricePaid": 0,
     "acquiredDate": null,
-    "manualValue": null,
+    "manualValue": 800,
     "ebayQuery": "",
     "notes": "",
     "archived": false,
