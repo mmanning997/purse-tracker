@@ -41,6 +41,10 @@ WISHLIST_STORE = DATA / "wishlist.json"
 DATA_JS = ROOT / "data.js"
 CONFIG = ROOT / "config.json"
 
+# Fewer than this many comps = too thin a sample to trust; the estimate is
+# excluded (no snapshot recorded) rather than logging a misleading value.
+MIN_COMPS = 3
+
 OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 BROWSE_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 INSIGHTS_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
@@ -171,8 +175,14 @@ def fetch(dry=False):
                 print(f"  {b['brand']} {b['model']:22}  ERROR {e}")
                 skipped += 1
                 continue
-            if val is None:
-                print(f"  {b['brand']} {b['model']:22}  no comps found (skipped)")
+            if val is None or n < MIN_COMPS:
+                reason = ("no comps found" if val is None
+                          else f"only {n} comps (<{MIN_COMPS}, too few to trust)")
+                print(f"  {b['brand']} {b['model']:22}  {reason} — excluded")
+                # drop any stale snapshot for today so a weak value doesn't linger
+                stale = history.get(b["id"])
+                if stale:
+                    stale[:] = [s for s in stale if s["date"] != stamp]
                 skipped += 1
                 continue
             print(f"  {b['brand']} {b['model']:22}  ${val:,}  ({n} comps)")
