@@ -217,13 +217,8 @@
       <h1>The <em>Handbag</em> Portfolio</h1>
     </div>
     <div class="tools">
-      <button class="btn ghost" id="btnTemplate" title="Download a blank CSV to fill in">CSV template</button>
-      <button class="btn ghost" id="btnImport" title="Import a CSV of bags or a JSON backup">Import</button>
-      <button class="btn ghost" id="btnExport">Export</button>
-      <button class="btn ghost" id="btnCloud" title="Save changes to the cloud so they sync to every device">☁ Cloud</button>
-      <button class="btn ghost" id="btnReset" title="Discard local edits, reload the saved file">Reset</button>
+      <button class="btn ghost" id="btnCloud" title="Sync status">☁ Cloud</button>
       <button class="btn primary" id="btnAdd">+ Add bag</button>
-      <input type="file" id="fileImport" accept=".csv,.json,text/csv,application/json" hidden>
     </div>
   </header>
 
@@ -402,17 +397,30 @@
 <script>
 /* ---------- data + persistence ---------- */
 const SEED = window.PURSE_DATA || { generatedAt: "—", bags: [], history: {}, wishlist: [] };
-const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1", backup: "purse.backup.v1", ghToken: "purse.gh.token", ghAuto: "purse.gh.auto" };
+const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1", backup: "purse.backup.v1", ghToken: "purse.gh.token", ghAuto: "purse.gh.auto", pending: "purse.pending" };
 const clone = x => JSON.parse(JSON.stringify(x));
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v == null ? fb : JSON.parse(v); } catch (e) { return fb; } };
 const jset = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { uiToast("Browser storage is full — try removing or shrinking photos."); } };
 const today = () => new Date().toISOString().slice(0, 10);
 
-let S = { bags: jget(K.bags, null), history: jget(K.history, null), wishlist: jget(K.wishlist, null) };
-if (S.bags === null) S.bags = clone(SEED.bags || []);
-if (S.history === null) S.history = clone(SEED.history || {});
-if (S.wishlist === null) S.wishlist = clone(SEED.wishlist || []);
-function persist() { jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); scheduleCloudSave(); }
+// One source of truth: always start from the published collection (data.js,
+// served by GitHub Pages), so opening the link on ANY device shows the same
+// latest data. The only exception is this device holding edits that haven't
+// reached the cloud yet (made offline, or a save that didn't finish) — those
+// are kept and re-synced rather than lost.
+let S;
+if (jget(K.pending, false) && jget(K.bags, null) !== null) {
+  S = { bags: jget(K.bags, clone(SEED.bags || [])), history: jget(K.history, clone(SEED.history || {})), wishlist: jget(K.wishlist, clone(SEED.wishlist || [])) };
+} else {
+  const prior = jget(K.bags, null);
+  if (prior && JSON.stringify(prior) !== JSON.stringify(SEED.bags || [])) {
+    // stash any pre-existing local copy before adopting the published one (recoverable safety net)
+    try { localStorage.setItem(K.backup, JSON.stringify({ ts: new Date().toISOString(), reason: "adopted published version", bags: prior, history: jget(K.history, {}), wishlist: jget(K.wishlist, []) })); } catch (e) {}
+  }
+  S = { bags: clone(SEED.bags || []), history: clone(SEED.history || {}), wishlist: clone(SEED.wishlist || []) };
+  jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); jset(K.pending, false);
+}
+function persist() { jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); jset(K.pending, true); scheduleCloudSave(); }
 
 /* In-page confirm/toast — native confirm()/alert() are blocked in sandboxed
    viewers (e.g. embedded previews) and flaky on mobile, so we roll our own. */
@@ -1041,7 +1049,7 @@ async function copyToClipboard(text, ta) {
   try { await navigator.clipboard.writeText(text); return true; }
   catch (e) { try { ta.focus(); ta.select(); return document.execCommand("copy"); } catch (_) { return false; } }
 }
-document.getElementById("btnExport").addEventListener("click", () => {
+document.getElementById("btnExport")?.addEventListener("click", () => {
   const json = exportBundleJSON();
   const ov = document.createElement("div");
   ov.className = "overlay open"; ov.style.zIndex = "60";
@@ -1131,12 +1139,12 @@ async function cloudSave(manual) {
       base_tree: headCommit.tree.sha,
       tree: cloudFiles().map(f => ({ path: f.path, mode: "100644", type: "blob", content: f.content })),
     }) });
-    if (tree.sha === headCommit.tree.sha) { setSync("ok"); if (manual) uiToast("Already up to date"); return true; }
+    if (tree.sha === headCommit.tree.sha) { jset(K.pending, false); setSync("ok"); if (manual) uiToast("Already up to date"); return true; }
     const commit = await ghApi(`${base}/git/commits`, { method: "POST", body: JSON.stringify({
       message: `Dashboard edit ${today()}`, tree: tree.sha, parents: [head],
     }) });
     await ghApi(`${base}/git/refs/heads/${GH.branch}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha }) });
-    setSync("ok"); if (manual) uiToast("Saved to cloud — live site updates in ~1 min");
+    jset(K.pending, false); setSync("ok"); if (manual) uiToast("Saved — updates on your other devices within ~1 min");
     return true;
   } catch (e) {
     setSync("err");
@@ -1152,20 +1160,18 @@ async function cloudSave(manual) {
 let syncTimer = null;
 function scheduleCloudSave() {
   if (!ghConnected()) return;
-  if (!ghAuto()) { setSync("unsaved"); return; }
   setSync("dirty"); clearTimeout(syncTimer);
   syncTimer = setTimeout(() => cloudSave(false), 1500);
 }
 function setSync(state) {
   const b = document.getElementById("btnCloud");
   if (!b) return;
-  if (!ghConnected()) { b.textContent = "☁ Cloud"; b.style.color = ""; b.title = "Connect to save changes to the cloud"; return; }
+  if (!ghConnected()) { b.textContent = "☁ Connect"; b.style.color = ""; b.title = "Turn on syncing so your edits save and appear on every device"; return; }
   const map = {
-    ok:      ["☁ Synced ✓", "var(--pos,#2a9d5c)", "All changes saved to the cloud"],
-    saving:  ["☁ Saving…", "", "Saving to the cloud…"],
-    dirty:   ["☁ Saving…", "", "Unsaved changes — saving shortly"],
-    unsaved: ["☁ Unsaved •", "var(--accent,#7b2233)", "You have unsaved changes — open ☁ Cloud and Save now"],
-    err:     ["☁ Save failed ⚠", "var(--neg,#c0392b)", "Last save failed — open ☁ Cloud to retry"],
+    ok:      ["☁ Synced ✓", "var(--pos,#2a9d5c)", "All changes saved — every device shows this"],
+    saving:  ["☁ Saving…", "", "Saving…"],
+    dirty:   ["☁ Saving…", "", "Saving your change…"],
+    err:     ["☁ Save failed ⚠", "var(--neg,#c0392b)", "Last save failed — open ☁ to retry"],
   };
   const [txt, col, tip] = map[state] || map.ok;
   b.textContent = txt; b.style.color = col; b.title = tip;
@@ -1184,51 +1190,26 @@ function openCloudModal() {
   const close = () => ov.remove();
   ov.addEventListener("click", e => { if (e.target === ov) close(); });
 
-  const finish = msg => { localStorage.setItem(K.ghAuto, "on"); setSync("ok"); close(); uiToast(msg, { duration: 3000 }); };
-
   function renderConnected() {
-    const auto = localStorage.getItem(K.ghAuto) !== "off";
-    ov.innerHTML = `<div class="modal" style="max-width:560px">
-      <div class="modal-head"><h3>Cloud sync</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+    ov.innerHTML = `<div class="modal" style="max-width:520px">
+      <div class="modal-head"><h3>Sync</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
       <div style="padding:0 24px 20px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
-        <p style="margin:0 0 12px"><strong style="color:var(--pos,#2a9d5c)">Connected.</strong> Edits commit straight to your GitHub repo, so they reach every device and the live site — no Export needed.</p>
-        <label style="display:flex;align-items:center;gap:9px;margin:14px 0;cursor:pointer">
-          <input type="checkbox" data-auto ${auto ? "checked" : ""} style="width:16px;height:16px">
-          <span>Save automatically after each change</span></label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-          <button class="btn primary" data-save>Save now</button>
-          <button class="btn" data-pull title="Discard this device's local copy and load the cloud's">Pull latest</button>
-          <button class="btn" data-disc>Disconnect</button></div>
-        <p class="hint" style="margin-top:14px">The token stays only in this browser. Disconnect removes it from this device.</p>
-      </div></div>`;
-    ov.querySelector("[data-x]").onclick = close;
-    ov.querySelector("[data-auto]").onchange = e => { localStorage.setItem(K.ghAuto, e.target.checked ? "on" : "off"); setSync("ok"); };
-    ov.querySelector("[data-save]").onclick = () => { close(); cloudSave(true); };
-    ov.querySelector("[data-pull]").onclick = async () => { try { await ghPull(); setSync("ok"); close(); uiToast("Loaded the latest from the cloud"); } catch (e) { uiToast("Couldn't pull: " + e.message, { duration: 4000 }); } };
-    ov.querySelector("[data-disc]").onclick = () => { localStorage.removeItem(K.ghToken); setSync(); close(); uiToast("Disconnected — token removed from this browser"); };
-  }
-
-  function renderChooser(cloud) {
-    const l = `${S.bags.length} bag${S.bags.length === 1 ? "" : "s"}`, c = `${cloud.bags.length} bag${cloud.bags.length === 1 ? "" : "s"}`;
-    ov.innerHTML = `<div class="modal" style="max-width:560px">
-      <div class="modal-head"><h3>This device and the cloud differ</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
-      <div style="padding:0 24px 20px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
-        <p style="margin:0 0 14px">Before turning on auto-save, pick which copy is correct — the other will be overwritten:</p>
+        <p style="margin:0 0 14px"><strong style="color:var(--pos,#2a9d5c)">Connected.</strong> Every change saves automatically, and the dashboard shows the same latest collection on every device.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn primary" data-keepcloud>Use cloud (${c})</button>
-          <button class="btn" data-keeplocal>Keep this device (${l})</button></div>
-        <p class="hint" style="margin-top:14px">“Use cloud” is safest if you’ve edited elsewhere recently. “Keep this device” pushes what’s on this screen over the cloud.</p>
+          <button class="btn" data-refresh title="Reload the newest data from the cloud">Refresh from cloud</button>
+          <button class="btn" data-disc>Disconnect this device</button></div>
+        <p class="hint" style="margin-top:14px">The token stays only in this browser. Disconnecting removes it here; your data stays safe in the cloud.</p>
       </div></div>`;
     ov.querySelector("[data-x]").onclick = close;
-    ov.querySelector("[data-keepcloud]").onclick = async () => { try { await ghPull(); finish("Synced to the cloud version ☁ ✓"); } catch (e) { uiToast("Pull failed: " + e.message, { duration: 4000 }); } };
-    ov.querySelector("[data-keeplocal]").onclick = () => { finish("This device's data will save to the cloud ☁ ✓"); setTimeout(() => cloudSave(false), 50); };
+    ov.querySelector("[data-refresh]").onclick = async () => { try { await ghPull(); jset(K.pending, false); setSync("ok"); close(); uiToast("Loaded the latest from the cloud"); } catch (e) { uiToast("Couldn't refresh: " + e.message, { duration: 4000 }); } };
+    ov.querySelector("[data-disc]").onclick = () => { localStorage.removeItem(K.ghToken); setSync(); close(); uiToast("Disconnected — token removed from this browser"); };
   }
 
   function renderConnect() {
     ov.innerHTML = `<div class="modal" style="max-width:580px">
-      <div class="modal-head"><h3>Connect cloud sync</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+      <div class="modal-head"><h3>Turn on syncing</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
       <div style="padding:0 24px 22px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
-        <p style="margin:0 0 10px">Connect a GitHub token once and every change saves automatically. Make a safe, minimal one:</p>
+        <p style="margin:0 0 10px">Connect a GitHub token once on the device you edit from — every change then saves automatically and shows up everywhere. Make a safe, minimal one:</p>
         <ol style="margin:0 0 12px 18px;padding:0;line-height:1.7">
           <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → fine-grained tokens</a></li>
           <li><strong>Repository access</strong> → Only select repositories → <em>purse-tracker</em></li>
@@ -1236,7 +1217,7 @@ function openCloudModal() {
           <li>Generate, copy the token, paste it below</li></ol>
         <input type="password" data-tok placeholder="github_pat_…" autocomplete="off" spellcheck="false" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:12px">
         <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" data-conn>Connect</button></div>
-        <p class="hint" style="margin-top:12px">Scoped to this one repo, contents-only. Stored only in this browser — never committed. This repo is public, so never paste a broader token.</p>
+        <p class="hint" style="margin-top:12px">Scoped to this one repo, contents-only. Stored only in this browser — never committed. This repo is public, so never paste a broader token. Viewing on other devices needs no token.</p>
       </div></div>`;
     ov.querySelector("[data-x]").onclick = close;
     ov.querySelector("[data-conn]").onclick = async () => {
@@ -1246,10 +1227,9 @@ function openCloudModal() {
       localStorage.setItem(K.ghToken, tok);
       try {
         await ghApi(`/repos/${GH.owner}/${GH.repo}`);           // validates token + repo access
-        const cloud = { bags: await ghGetFile("data/bags.json") || [], history: await ghGetFile("data/history.json") || {}, wishlist: await ghGetFile("data/wishlist.json") || [] };
-        const same = JSON.stringify([S.bags, S.history, S.wishlist]) === JSON.stringify([cloud.bags, cloud.history, cloud.wishlist]);
-        if (same) finish("Connected — changes now save automatically ☁ ✓");
-        else renderChooser(cloud);
+        localStorage.setItem(K.ghAuto, "on"); setSync("ok"); close();
+        uiToast("Connected — changes now save automatically ☁ ✓", { duration: 3000 });
+        cloudSave(false);                                       // flush any unsynced edits (no-op if already in sync)
       } catch (e) {
         localStorage.removeItem(K.ghToken); btn.disabled = false; btn.textContent = "Connect";
         uiToast(e.status === 401 ? "Token rejected — check you copied it fully" : e.status === 404 ? "Token can't see the repo — check repository access" : "Couldn't connect: " + e.message, { duration: 4500 });
@@ -1262,8 +1242,8 @@ function openCloudModal() {
 document.getElementById("btnCloud").addEventListener("click", openCloudModal);
 setSync(ghConnected() ? "ok" : null);
 
-document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileImport").click());
-document.getElementById("fileImport").addEventListener("change", e => {
+document.getElementById("btnImport")?.addEventListener("click", () => document.getElementById("fileImport").click());
+document.getElementById("fileImport")?.addEventListener("change", e => {
   const file = e.target.files[0]; if (!file) return;
   const rd = new FileReader();
   rd.onload = ev => {
@@ -1376,13 +1356,13 @@ const CSV_TEMPLATE = `# Fill in one bag per row. Only brand and model are requir
 brand,model,specs,condition,authenticated,price paid,date acquired,current value,ebay query,notes
 Chanel,Classic Flap Medium,"black caviar, gold hardware",Excellent,yes,6800,2023-05-14,11000,Chanel Classic Flap Medium caviar,example row — delete me
 `;
-document.getElementById("btnTemplate").addEventListener("click", () => {
+document.getElementById("btnTemplate")?.addEventListener("click", () => {
   const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "purse-template.csv"; a.click();
   URL.revokeObjectURL(a.href);
 });
-document.getElementById("btnReset").addEventListener("click", async () => {
+document.getElementById("btnReset")?.addEventListener("click", async () => {
   const ok = await uiConfirm("Reset to the saved file? This replaces the bags in this browser. A backup is kept — you can Undo right after.", { okText: "Reset", danger: true });
   if (!ok) return;
   saveBackup("reset");
