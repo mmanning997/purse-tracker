@@ -187,6 +187,7 @@
       <button class="btn ghost" id="btnTemplate" title="Download a blank CSV to fill in">CSV template</button>
       <button class="btn ghost" id="btnImport" title="Import a CSV of bags or a JSON backup">Import</button>
       <button class="btn ghost" id="btnExport">Export</button>
+      <button class="btn ghost" id="btnCloud" title="Save changes to the cloud so they sync to every device">☁ Cloud</button>
       <button class="btn ghost" id="btnReset" title="Discard local edits, reload the saved file">Reset</button>
       <button class="btn primary" id="btnAdd">+ Add bag</button>
       <input type="file" id="fileImport" accept=".csv,.json,text/csv,application/json" hidden>
@@ -351,7 +352,7 @@
 <script>
 /* ---------- data + persistence ---------- */
 const SEED = window.PURSE_DATA || { generatedAt: "—", bags: [], history: {}, wishlist: [] };
-const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1", backup: "purse.backup.v1" };
+const K = { bags: "purse.bags.v1", history: "purse.history.v1", wishlist: "purse.wishlist.v1", backup: "purse.backup.v1", ghToken: "purse.gh.token", ghAuto: "purse.gh.auto" };
 const clone = x => JSON.parse(JSON.stringify(x));
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v == null ? fb : JSON.parse(v); } catch (e) { return fb; } };
 const jset = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { uiToast("Browser storage is full — try removing or shrinking photos."); } };
@@ -361,7 +362,7 @@ let S = { bags: jget(K.bags, null), history: jget(K.history, null), wishlist: jg
 if (S.bags === null) S.bags = clone(SEED.bags || []);
 if (S.history === null) S.history = clone(SEED.history || {});
 if (S.wishlist === null) S.wishlist = clone(SEED.wishlist || []);
-function persist() { jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); }
+function persist() { jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist); scheduleCloudSave(); }
 
 /* In-page confirm/toast — native confirm()/alert() are blocked in sandboxed
    viewers (e.g. embedded previews) and flaky on mobile, so we roll our own. */
@@ -938,6 +939,202 @@ document.getElementById("btnExport").addEventListener("click", () => {
   ov.querySelector("[data-copy]").onclick = async () => { const ok = await copyToClipboard(json, ta); uiToast(ok ? "Copied — paste it to Claude to save" : "Couldn't auto-copy — select the text and copy manually"); };
   ta.focus(); ta.select();
 });
+/* ───────── Cloud sync (GitHub) ─────────
+   Commits data/*.json + data.js straight to the repo so edits reach every
+   device and the live site — no Export/import round-trip. The token is a
+   fine-grained GitHub PAT (Contents: read/write on THIS repo only); it lives
+   only in this browser's localStorage and is never written into any file. */
+const GH = { owner: "mmanning997", repo: "purse-tracker", branch: "main" };
+const ghToken = () => localStorage.getItem(K.ghToken) || "";
+const ghConnected = () => !!ghToken();
+const ghAuto = () => ghConnected() && localStorage.getItem(K.ghAuto) !== "off";
+
+// Match refresh.py's json.dumps(ensure_ascii=True) so git diffs stay clean.
+function pyjson(obj, indent) {
+  const s = indent ? JSON.stringify(obj, null, indent) : JSON.stringify(obj);
+  return s.replace(/[\u0080-\uffff]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+function cloudFiles() {
+  const payload = { generatedAt: today(), bags: S.bags, history: S.history, wishlist: S.wishlist };
+  return [
+    { path: "data/bags.json", content: pyjson(S.bags, 2) + "\n" },
+    { path: "data/history.json", content: pyjson(S.history, 1) + "\n" },
+    { path: "data/wishlist.json", content: pyjson(S.wishlist, 2) + "\n" },
+    { path: "data.js", content: "window.PURSE_DATA = " + pyjson(payload, 0) + ";\n" },
+  ];
+}
+async function ghApi(path, opts = {}) {
+  const r = await fetch("https://api.github.com" + path, {
+    method: opts.method || "GET",
+    headers: {
+      Authorization: "Bearer " + ghToken(),
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: opts.body,
+  });
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try { msg = (await r.json()).message || msg; } catch (e) {}
+    const err = new Error(msg); err.status = r.status; throw err;
+  }
+  return r.status === 204 ? null : r.json();
+}
+async function ghGetFile(path) {          // read a committed file (latest on branch)
+  try {
+    const r = await ghApi(`/repos/${GH.owner}/${GH.repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=${GH.branch}`);
+    const bin = atob((r.content || "").replace(/\s/g, ""));
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) { if (e.status === 404) return null; throw e; }
+}
+
+let syncBusy = false, syncQueued = false;
+async function cloudSave(manual) {
+  if (!ghConnected()) { if (manual) uiToast("Connect the cloud first (☁ Cloud button)"); return false; }
+  if (syncBusy) { syncQueued = true; return false; }        // coalesce overlapping saves
+  syncBusy = true; setSync("saving");
+  const base = `/repos/${GH.owner}/${GH.repo}`;
+  try {
+    const ref = await ghApi(`${base}/git/ref/heads/${GH.branch}`);
+    const head = ref.object.sha;
+    const headCommit = await ghApi(`${base}/git/commits/${head}`);
+    const tree = await ghApi(`${base}/git/trees`, { method: "POST", body: JSON.stringify({
+      base_tree: headCommit.tree.sha,
+      tree: cloudFiles().map(f => ({ path: f.path, mode: "100644", type: "blob", content: f.content })),
+    }) });
+    if (tree.sha === headCommit.tree.sha) { setSync("ok"); if (manual) uiToast("Already up to date"); return true; }
+    const commit = await ghApi(`${base}/git/commits`, { method: "POST", body: JSON.stringify({
+      message: `Dashboard edit ${today()}`, tree: tree.sha, parents: [head],
+    }) });
+    await ghApi(`${base}/git/refs/heads/${GH.branch}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha }) });
+    setSync("ok"); if (manual) uiToast("Saved to cloud — live site updates in ~1 min");
+    return true;
+  } catch (e) {
+    setSync("err");
+    uiToast(e.status === 401 || e.status === 403 ? "Cloud save rejected — token invalid or expired. Reconnect via ☁ Cloud."
+      : e.status === 409 || e.status === 422 ? "The cloud changed since you loaded — reload the page, then save again."
+      : "Cloud save failed: " + e.message, { duration: 4500 });
+    return false;
+  } finally {
+    syncBusy = false;
+    if (syncQueued) { syncQueued = false; cloudSave(false); }   // flush a change that landed mid-save
+  }
+}
+let syncTimer = null;
+function scheduleCloudSave() {
+  if (!ghConnected()) return;
+  if (!ghAuto()) { setSync("unsaved"); return; }
+  setSync("dirty"); clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => cloudSave(false), 1500);
+}
+function setSync(state) {
+  const b = document.getElementById("btnCloud");
+  if (!b) return;
+  if (!ghConnected()) { b.textContent = "☁ Cloud"; b.style.color = ""; b.title = "Connect to save changes to the cloud"; return; }
+  const map = {
+    ok:      ["☁ Synced ✓", "var(--pos,#2a9d5c)", "All changes saved to the cloud"],
+    saving:  ["☁ Saving…", "", "Saving to the cloud…"],
+    dirty:   ["☁ Saving…", "", "Unsaved changes — saving shortly"],
+    unsaved: ["☁ Unsaved •", "var(--accent,#7b2233)", "You have unsaved changes — open ☁ Cloud and Save now"],
+    err:     ["☁ Save failed ⚠", "var(--neg,#c0392b)", "Last save failed — open ☁ Cloud to retry"],
+  };
+  const [txt, col, tip] = map[state] || map.ok;
+  b.textContent = txt; b.style.color = col; b.title = tip;
+}
+async function ghPull() {                  // replace local data with the cloud's
+  const [bags, history, wishlist] = await Promise.all([
+    ghGetFile("data/bags.json"), ghGetFile("data/history.json"), ghGetFile("data/wishlist.json")]);
+  S.bags = bags || []; S.history = history || {}; S.wishlist = wishlist || [];
+  jset(K.bags, S.bags); jset(K.history, S.history); jset(K.wishlist, S.wishlist);   // deliberately not persist() — no echo save
+  renderAll();
+}
+function openCloudModal() {
+  const ov = document.createElement("div");
+  ov.className = "overlay open"; ov.style.zIndex = "60";
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener("click", e => { if (e.target === ov) close(); });
+
+  const finish = msg => { localStorage.setItem(K.ghAuto, "on"); setSync("ok"); close(); uiToast(msg, { duration: 3000 }); };
+
+  function renderConnected() {
+    const auto = localStorage.getItem(K.ghAuto) !== "off";
+    ov.innerHTML = `<div class="modal" style="max-width:560px">
+      <div class="modal-head"><h3>Cloud sync</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+      <div style="padding:0 24px 20px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
+        <p style="margin:0 0 12px"><strong style="color:var(--pos,#2a9d5c)">Connected.</strong> Edits commit straight to your GitHub repo, so they reach every device and the live site — no Export needed.</p>
+        <label style="display:flex;align-items:center;gap:9px;margin:14px 0;cursor:pointer">
+          <input type="checkbox" data-auto ${auto ? "checked" : ""} style="width:16px;height:16px">
+          <span>Save automatically after each change</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn primary" data-save>Save now</button>
+          <button class="btn" data-pull title="Discard this device's local copy and load the cloud's">Pull latest</button>
+          <button class="btn" data-disc>Disconnect</button></div>
+        <p class="hint" style="margin-top:14px">The token stays only in this browser. Disconnect removes it from this device.</p>
+      </div></div>`;
+    ov.querySelector("[data-x]").onclick = close;
+    ov.querySelector("[data-auto]").onchange = e => { localStorage.setItem(K.ghAuto, e.target.checked ? "on" : "off"); setSync("ok"); };
+    ov.querySelector("[data-save]").onclick = () => { close(); cloudSave(true); };
+    ov.querySelector("[data-pull]").onclick = async () => { try { await ghPull(); setSync("ok"); close(); uiToast("Loaded the latest from the cloud"); } catch (e) { uiToast("Couldn't pull: " + e.message, { duration: 4000 }); } };
+    ov.querySelector("[data-disc]").onclick = () => { localStorage.removeItem(K.ghToken); setSync(); close(); uiToast("Disconnected — token removed from this browser"); };
+  }
+
+  function renderChooser(cloud) {
+    const l = `${S.bags.length} bag${S.bags.length === 1 ? "" : "s"}`, c = `${cloud.bags.length} bag${cloud.bags.length === 1 ? "" : "s"}`;
+    ov.innerHTML = `<div class="modal" style="max-width:560px">
+      <div class="modal-head"><h3>This device and the cloud differ</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+      <div style="padding:0 24px 20px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
+        <p style="margin:0 0 14px">Before turning on auto-save, pick which copy is correct — the other will be overwritten:</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" data-keepcloud>Use cloud (${c})</button>
+          <button class="btn" data-keeplocal>Keep this device (${l})</button></div>
+        <p class="hint" style="margin-top:14px">“Use cloud” is safest if you’ve edited elsewhere recently. “Keep this device” pushes what’s on this screen over the cloud.</p>
+      </div></div>`;
+    ov.querySelector("[data-x]").onclick = close;
+    ov.querySelector("[data-keepcloud]").onclick = async () => { try { await ghPull(); finish("Synced to the cloud version ☁ ✓"); } catch (e) { uiToast("Pull failed: " + e.message, { duration: 4000 }); } };
+    ov.querySelector("[data-keeplocal]").onclick = () => { finish("This device's data will save to the cloud ☁ ✓"); setTimeout(() => cloudSave(false), 50); };
+  }
+
+  function renderConnect() {
+    ov.innerHTML = `<div class="modal" style="max-width:580px">
+      <div class="modal-head"><h3>Connect cloud sync</h3><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+      <div style="padding:0 24px 22px;color:var(--ink-soft);font-size:13.5px;line-height:1.55">
+        <p style="margin:0 0 10px">Connect a GitHub token once and every change saves automatically. Make a safe, minimal one:</p>
+        <ol style="margin:0 0 12px 18px;padding:0;line-height:1.7">
+          <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → fine-grained tokens</a></li>
+          <li><strong>Repository access</strong> → Only select repositories → <em>purse-tracker</em></li>
+          <li><strong>Permissions</strong> → Repository → <em>Contents</em> → <strong>Read and write</strong> (nothing else)</li>
+          <li>Generate, copy the token, paste it below</li></ol>
+        <input type="password" data-tok placeholder="github_pat_…" autocomplete="off" spellcheck="false" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:12px">
+        <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" data-conn>Connect</button></div>
+        <p class="hint" style="margin-top:12px">Scoped to this one repo, contents-only. Stored only in this browser — never committed. This repo is public, so never paste a broader token.</p>
+      </div></div>`;
+    ov.querySelector("[data-x]").onclick = close;
+    ov.querySelector("[data-conn]").onclick = async () => {
+      const tok = ov.querySelector("[data-tok]").value.trim();
+      if (!tok) { uiToast("Paste your token first"); return; }
+      const btn = ov.querySelector("[data-conn]"); btn.disabled = true; btn.textContent = "Checking…";
+      localStorage.setItem(K.ghToken, tok);
+      try {
+        await ghApi(`/repos/${GH.owner}/${GH.repo}`);           // validates token + repo access
+        const cloud = { bags: await ghGetFile("data/bags.json") || [], history: await ghGetFile("data/history.json") || {}, wishlist: await ghGetFile("data/wishlist.json") || [] };
+        const same = JSON.stringify([S.bags, S.history, S.wishlist]) === JSON.stringify([cloud.bags, cloud.history, cloud.wishlist]);
+        if (same) finish("Connected — changes now save automatically ☁ ✓");
+        else renderChooser(cloud);
+      } catch (e) {
+        localStorage.removeItem(K.ghToken); btn.disabled = false; btn.textContent = "Connect";
+        uiToast(e.status === 401 ? "Token rejected — check you copied it fully" : e.status === 404 ? "Token can't see the repo — check repository access" : "Couldn't connect: " + e.message, { duration: 4500 });
+      }
+    };
+  }
+
+  if (ghConnected()) renderConnected(); else renderConnect();
+}
+document.getElementById("btnCloud").addEventListener("click", openCloudModal);
+setSync(ghConnected() ? "ok" : null);
+
 document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileImport").click());
 document.getElementById("fileImport").addEventListener("change", e => {
   const file = e.target.files[0]; if (!file) return;
