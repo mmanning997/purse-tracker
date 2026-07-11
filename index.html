@@ -133,6 +133,9 @@
   .card-sub { text-transform: none; letter-spacing: 0; color: var(--ink-faint); font-weight: 400; }
   .insights-extra { padding: 0 22px 24px; display: grid; gap: 24px; }
   .insights-extra .chart-card { border-top: 1px solid var(--line); padding-top: 20px; }
+  .insights-top { padding-top: 20px; }
+  .insights-top .chart-card:first-child { border-top: none; padding-top: 0; }
+  .insights-top + .insights { border-top: 1px solid var(--line); }
   /* Ashley's Houses */
   .houses { display: flex; flex-direction: column; gap: 12px; }
   .house { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 13px; }
@@ -264,6 +267,16 @@
   <!-- Insights -->
   <div class="panel" id="panel-insights" hidden>
     <div class="panel-head"><h2>Collection insights</h2></div>
+    <div class="insights-extra insights-top">
+      <div class="chart-card">
+        <h3>Standings</h3>
+        <div class="board" id="leaderboards"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Achievements <span class="card-sub" id="achvCount"></span></h3>
+        <div class="badges" id="achievements"></div>
+      </div>
+    </div>
     <div class="insights">
       <div class="chart-card">
         <h3>Value by brand</h3>
@@ -279,14 +292,6 @@
       <div class="chart-card">
         <h3>Ashley's Houses <span class="card-sub">— brand loyalty by resale value</span></h3>
         <div class="houses" id="houses"></div>
-      </div>
-      <div class="chart-card">
-        <h3>Standings</h3>
-        <div class="board" id="leaderboards"></div>
-      </div>
-      <div class="chart-card">
-        <h3>Achievements <span class="card-sub" id="achvCount"></span></h3>
-        <div class="badges" id="achievements"></div>
       </div>
     </div>
   </div>
