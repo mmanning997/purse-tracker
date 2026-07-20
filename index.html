@@ -546,7 +546,7 @@ function renderKPIs() {
     return { b, val, paid, diff };
   });
   const totalVal = rows.reduce((a, r) => a + (r.val || 0), 0);
-  const priced = rows.filter(r => r.val != null && r.paid != null);
+  const priced = rows.filter(r => r.val != null && r.paid != null && r.paid > 0);  // $0/blank paid = no cost basis
   const invested = priced.reduce((a, r) => a + r.paid, 0);
   const gain = priced.reduce((a, r) => a + r.diff, 0);
   const pct = invested ? (gain / invested * 100) : 0;
