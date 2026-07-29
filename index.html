@@ -735,11 +735,19 @@ function renderLeaderboards() {
   });
   const withVal = rows.filter(r => r.val != null);
   if (!withVal.length) { el.innerHTML = `<div class="empty">Standings appear once eBay comps are in.</div>`; return; }
-  const priced = rows.filter(r => r.diff != null);
+  const priced = rows.filter(r => r.diff != null && r.paid > 0);  // $0/blank paid = no cost basis
   const tile = (label, emoji, bag, stat) => bag ? `<div class="tile"><div class="t-label">${emoji} ${label}</div><div class="t-bag">${bag.model}</div><div class="t-brand">${bag.brand}</div><div class="t-stat">${stat}</div></div>` : "";
   const tiles = [];
+  // The Vault — the sell-it-all-today number
+  const vault = withVal.reduce((a, r) => a + r.val, 0);
+  tiles.push(`<div class="tile"><div class="t-label">🔐 The Vault</div><div class="t-bag">Entire collection</div><div class="t-brand">if you sold it all today</div><div class="t-stat">${fmt(vault)}</div></div>`);
   const mv = [...withVal].sort((a, b) => b.val - a.val)[0];
   tiles.push(tile("Most Valuable", "💎", mv.b, fmt(mv.val)));
+  // The Dynasty — the house you own the most of
+  const counts = {};
+  for (const b of activeBags()) counts[b.brand] = (counts[b.brand] || 0) + 1;
+  const [dynBrand, dynCount] = Object.entries(counts).sort((a, z) => z[1] - a[1])[0];
+  if (dynCount > 1) tiles.push(`<div class="tile"><div class="t-label">👑 The Dynasty</div><div class="t-bag">${dynBrand}</div><div class="t-brand">the house you own most</div><div class="t-stat">${dynCount} bags</div></div>`);
   if (priced.length) {
     const tg = [...priced].sort((a, b) => b.diff - a.diff)[0];
     tiles.push(tile("Top Gainer", "📈", tg.b, `<span class="delta ${tg.diff >= 0 ? "up" : "down"}">${tg.diff >= 0 ? "▲" : "▼"} ${fmt(Math.abs(tg.diff))}</span>`));
