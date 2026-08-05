@@ -102,6 +102,8 @@
   .swatch { width: 40px; height: 40px; border-radius: 9px; flex: none; display: grid; place-items: center; color: #fff; font-family: Georgia, serif; font-size: 16px; background-size: cover; background-position: center; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
   .bag .name { font-weight: 600; }
   .bag .brand { font-size: 12px; color: var(--ink-faint); letter-spacing: .02em; }
+  a.brag { color: var(--ink-faint); text-decoration: none; font-size: 12px; padding: 2px 4px; border-radius: 5px; }
+  a.brag:hover { color: var(--accent); background: var(--surface-2); }
   .bag .specs { font-size: 11.5px; color: var(--ink-faint); }
 
   .conds { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
@@ -566,6 +568,14 @@ function renderKPIs() {
 }
 
 /* ---------- table ---------- */
+/* BragMyBag lookup link — pre-filled site search for the bag; skip no-name brands
+   the site won't cover. Search URL = always valid, works for future bags too. */
+function bragLink(b) {
+  if (/^(unbranded|handcrafted)$/i.test((b.brand || "").trim())) return "";
+  const q = encodeURIComponent(`${b.brand} ${b.model}`.trim());
+  return ` <a class="brag" href="https://www.bragmybag.com/?s=${q}" target="_blank" rel="noopener" title="Look up prices & info on BragMyBag">↗</a>`;
+}
+
 let tableFilter = "all";
 let sortKey = null, sortDir = 1;   // null = original order
 const SORT_LABELS = { bag: "Bag", designer: "Designer", condition: "Condition", paid: "Paid", value: "Est. Resale", gl: "Gain / Loss" };
@@ -621,7 +631,7 @@ function renderTable() {
     const sw = b.photo ? `background-image:url('${b.photo}')` : `background:${brandColor(b.brand)}`;
     return `<tr data-id="${b.id}">
       <td><div class="bag"><span class="swatch" style="${sw}">${b.photo ? "" : initial}</span>
-        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}</span>${b.specs ? `<br><span class="specs">${b.specs}</span>` : ""}</span></div></td>
+        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}${bragLink(b)}</span>${b.specs ? `<br><span class="specs">${b.specs}</span>` : ""}</span></div></td>
       <td><span class="designer">${b.brand || "—"}</span></td>
       <td><div class="conds"><span class="pill ${cc}">${b.condition || "—"}</span>${auth}</div></td>
       <td class="num">${paidCell}</td><td class="num">${valCell}</td>
@@ -906,7 +916,7 @@ document.querySelector("#panel-table thead").addEventListener("click", e => {
 paintSort();
 
 /* ---------- open editor from rows/cards ---------- */
-document.getElementById("rows").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) openBagForm(tr.dataset.id); });
+document.getElementById("rows").addEventListener("click", e => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openBagForm(tr.dataset.id); });
 document.getElementById("archivedRows").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) openBagForm(tr.dataset.id); });
 document.getElementById("lookGrid").addEventListener("click", e => { const c = e.target.closest(".card[data-id]"); if (c) openBagForm(c.dataset.id); });
 document.getElementById("wishGrid").addEventListener("click", e => { const c = e.target.closest(".card[data-wid]"); if (c) openWishForm(c.dataset.wid); });
