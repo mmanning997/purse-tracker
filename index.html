@@ -82,7 +82,24 @@
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
   .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; border-bottom: 1px solid var(--line); gap: 12px; flex-wrap: wrap; }
   .panel-head h2 { font-family: Georgia, serif; font-weight: 500; font-size: 19px; margin: 0; }
-  .filters { display: flex; gap: 8px; align-items: center; }
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .panel-head h2 .count { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; color: var(--ink-faint); font-weight: 600; margin-left: 6px; letter-spacing: .04em; }
+  .brandbar { display: flex; gap: 6px; padding: 10px 22px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; background: var(--surface); }
+  .brandbar::-webkit-scrollbar { display: none; }
+  .brandbar:empty { display: none; }
+  .brandbar .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; background: transparent; }
+  .brandbar .chip .bsw { width: 8px; height: 8px; border-radius: 50%; }
+  .brandbar .chip .n { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .brandbar .chip.active .n { color: #fff; }
+  .brandbar .chip.active .bsw { box-shadow: 0 0 0 1.5px #fff; }
+  .bag .brand-m { display: none; font-size: 12px; color: var(--ink-faint); }
+  /* Data menu */
+  .menu-wrap { position: relative; }
+  .caret { font-size: 10px; margin-left: 2px; color: var(--ink-faint); }
+  .menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 240px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 6px; z-index: 40; }
+  .menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 9px 12px; border: none; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .menu-item small { font-weight: 400; font-size: 11.5px; color: var(--ink-faint); }
+  .menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); outline: none; }
   .chip { font-size: 12px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-soft); cursor: pointer; }
   .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
@@ -206,10 +223,39 @@
 
   [hidden] { display: none !important; }
   @media (max-width: 760px) {
-    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .wrap { padding: 22px 14px 56px; }
+    .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .kpi { padding: 14px 15px; }
+    .kpi .value { font-size: 24px; }
     .insights { grid-template-columns: 1fr; }
-    header { flex-direction: column; }
+    header { margin-bottom: 16px; }
+    h1 { font-size: 28px; }
+    .brandline { font-size: 10.5px; margin-bottom: 6px; }
     .tools { justify-content: flex-start; }
+    .btn { padding: 8px 12px; }
+    .tabs { display: flex; width: 100%; overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: none; padding: 7px 12px; }
+    .panel-head { padding: 12px 14px; }
+    .brandbar { padding: 8px 14px; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 12px; }
+    .card .body { padding: 10px 11px 12px; }
+    .card .price { font-size: 17px; }
+    /* Table on a phone: Bag (with designer underneath) · Condition · Resale · Gain */
+    table { min-width: 0; }
+    .col-designer, .col-paid, .col-trend { display: none; }
+    .bag .brand-m { display: block; }
+    .bag .specs { display: none; }
+    thead th, tbody td { padding: 10px 8px; font-size: 13px; }
+    tbody td:first-child, thead th:first-child { padding-left: 14px; }
+    tbody td:last-child, thead th:last-child { padding-right: 14px; }
+    .bag { gap: 9px; }
+    .swatch { width: 34px; height: 34px; border-radius: 8px; font-size: 14px; }
+    .bag .name { font-size: 13.5px; }
+    .conds .auth { font-size: 9.5px; }
+    thead th { font-size: 10px; letter-spacing: .06em; }
+    .modal { border-radius: 14px; }
+    .field.row2 { grid-template-columns: 1fr; gap: 0; }
   }
   @media (prefers-reduced-motion: reduce) { .card { transition: none; } }
 </style>
@@ -222,6 +268,15 @@
       <h1>The <em>Handbag</em> Portfolio</h1>
     </div>
     <div class="tools">
+      <div class="menu-wrap">
+        <button class="btn ghost" id="btnData" aria-haspopup="menu" aria-expanded="false">Data <span class="caret">▾</span></button>
+        <div class="menu" id="dataMenu" role="menu" hidden>
+          <button class="menu-item" id="btnImport" role="menuitem"><span>Import…</span><small>A CSV of bags or a JSON backup</small></button>
+          <button class="menu-item" id="btnExport" role="menuitem"><span>Export backup</span><small>Save everything as JSON</small></button>
+          <button class="menu-item" id="btnTemplate" role="menuitem"><span>Blank CSV template</span><small>Fill in, then Import</small></button>
+        </div>
+        <input type="file" id="fileImport" accept=".csv,.json,text/csv,application/json" hidden>
+      </div>
       <button class="btn ghost" id="btnCloud" title="Sync status">☁ Cloud</button>
       <button class="btn primary" id="btnAdd">+ Add bag</button>
     </div>
@@ -240,18 +295,19 @@
   <!-- Collection table -->
   <div class="panel" id="panel-table">
     <div class="panel-head">
-      <h2>Holdings</h2>
+      <h2>Holdings <span class="count" id="holdingsCount"></span></h2>
       <div class="filters" id="filters">
         <span class="chip active" data-f="all">All</span>
         <span class="chip" data-f="up">Gaining</span>
         <span class="chip" data-f="down">Losing</span>
       </div>
     </div>
+    <div class="brandbar" id="brandBar"></div>
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th data-sort="bag">Bag</th><th data-sort="designer">Designer</th><th data-sort="condition">Condition</th><th class="num" data-sort="paid">Paid</th>
-          <th class="num" data-sort="value">Est. Resale</th><th>Value Trend</th><th class="num" data-sort="gl">Gain / Loss</th>
+          <th data-sort="bag">Bag</th><th data-sort="designer" class="col-designer">Designer</th><th data-sort="condition">Condition</th><th class="num col-paid" data-sort="paid">Paid</th>
+          <th class="num" data-sort="value">Est. Resale</th><th class="col-trend">Value Trend</th><th class="num" data-sort="gl">Gain / Loss</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -555,13 +611,16 @@ function renderKPIs() {
   let best = null;
   for (const r of priced) { const rp = r.diff / r.paid; if (!best || rp > best.rp) best = { model: r.b.model, rp }; }
   const gCls = gain >= 0 ? "up" : "down";
+  const n = rows.length, valued = rows.filter(r => r.val != null).length;
+  const pricedNote = priced.length === n ? "every bag has a price paid" : `${priced.length} of ${n} bag${n === 1 ? "" : "s"} ${priced.length === 1 ? "has" : "have"} a price paid`;
+  const valuedNote = valued === n ? `${n} bag${n === 1 ? "" : "s"}, every one valued` : `${valued} of ${n} bags valued`;
   document.getElementById("kpis").innerHTML = `
     <div class="kpi feature"><div class="label">Current Resale Value</div><div class="value">${fmt(totalVal)}</div>
-      <div class="sub"><span class="delta ${gCls}">${gain >= 0 ? "▲" : "▼"} ${fmt(Math.abs(gain))}</span> ${gain >= 0 ? "above" : "below"} paid</div></div>
-    <div class="kpi"><div class="label">Total Invested</div><div class="value">${fmt(invested)}</div>
-      <div class="sub">across ${rows.length} bag${rows.length === 1 ? "" : "s"}</div></div>
-    <div class="kpi"><div class="label">Unrealized Gain</div><div class="value delta ${gCls}">${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%</div>
-      <div class="sub">portfolio return</div></div>
+      <div class="sub">${valuedNote}</div></div>
+    <div class="kpi"><div class="label">Total Invested</div><div class="value">${priced.length ? fmt(invested) : "—"}</div>
+      <div class="sub">${pricedNote}</div></div>
+    <div class="kpi"><div class="label">Gain on Priced Bags</div><div class="value delta ${gCls}">${priced.length ? `${gain >= 0 ? "+" : "−"}${fmt(Math.abs(gain))}` : "—"}</div>
+      <div class="sub">${priced.length ? `<span class="delta ${gCls}">${pct >= 0 ? "+" : ""}${pct.toFixed(0)}%</span> vs. paid · ${priced.length === n ? "whole collection" : `${priced.length} priced bag${priced.length === 1 ? "" : "s"} only`}` : "add a price paid to see this"}</div></div>
     <div class="kpi"><div class="label">Best Performer</div>
       <div class="value" style="font-size:20px;line-height:1.3;padding-top:4px;">${best ? best.model : "—"}</div>
       <div class="sub">${best ? `<span class="delta up">▲ ${Math.round(best.rp * 100)}%</span> vs. paid` : "add a purchase price"}</div></div>`;
@@ -576,8 +635,18 @@ function bragLink(b) {
   return ` <a class="brag" href="https://www.bragmybag.com/?s=${q}" target="_blank" rel="noopener" title="Look up prices & info on BragMyBag">↗</a>`;
 }
 
-let tableFilter = "all";
+let tableFilter = "all", brandFilter = null;
 let sortKey = null, sortDir = 1;   // null = original order
+function renderBrandBar(bags) {
+  const bar = document.getElementById("brandBar"); if (!bar) return;
+  const counts = {};
+  for (const b of bags) { const k = (b.brand || "Unbranded").trim() || "Unbranded"; counts[k] = (counts[k] || 0) + 1; }
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (entries.length < 2) { bar.innerHTML = ""; brandFilter = null; return; }
+  if (brandFilter && !counts[brandFilter]) brandFilter = null;
+  bar.innerHTML = `<span class="chip${brandFilter ? "" : " active"}" data-b="">All designers</span>` +
+    entries.map(([k, n]) => `<span class="chip${brandFilter === k ? " active" : ""}" data-b="${k.replace(/"/g, "&quot;")}"><span class="bsw" style="background:${brandColor(k)}"></span>${k}<span class="n">${n}</span></span>`).join("");
+}
 const SORT_LABELS = { bag: "Bag", designer: "Designer", condition: "Condition", paid: "Paid", value: "Est. Resale", gl: "Gain / Loss" };
 function sortRows(rows) {
   if (!sortKey) return rows;
@@ -608,14 +677,19 @@ function paintSort() {
   });
 }
 function renderTable() {
-  const rows = activeBags().map(b => {
+  const all = activeBags();
+  renderBrandBar(all);
+  const rows = all.map(b => {
     const val = currentValue(b), paid = b.pricePaid ?? null;
     const diff = (val != null && paid != null) ? val - paid : null;
     const dir = diff == null ? null : (diff >= 0 ? "up" : "down");
     return { b, val, paid, diff, dir };
   });
-  const shown = sortRows(rows.filter(r => tableFilter === "all" ? true : r.dir === tableFilter));
+  const shown = sortRows(rows.filter(r => tableFilter === "all" ? true : r.dir === tableFilter)
+    .filter(r => !brandFilter || ((r.b.brand || "Unbranded").trim() || "Unbranded") === brandFilter));
   const body = document.getElementById("rows");
+  const hc = document.getElementById("holdingsCount");
+  if (hc) hc.textContent = shown.length === rows.length ? `${rows.length}` : `${shown.length} of ${rows.length}`;
   if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="empty">No bags in the collection — hit <strong>+ Add bag</strong> to start, or check the <strong>Archived</strong> tab.</td></tr>`; return; }
   body.innerHTML = shown.map(({ b, val, paid, diff, dir }) => {
     const cc = CONDCLASS[b.condition] || "fair";
@@ -631,12 +705,12 @@ function renderTable() {
     const sw = b.photo ? `background-image:url('${b.photo}')` : `background:${brandColor(b.brand)}`;
     return `<tr data-id="${b.id}">
       <td><div class="bag"><span class="swatch" style="${sw}">${b.photo ? "" : initial}</span>
-        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}${bragLink(b)}</span>${b.specs ? `<br><span class="specs">${b.specs}</span>` : ""}</span></div></td>
-      <td><span class="designer">${b.brand || "—"}</span></td>
+        <span><span class="name">${b.model}${b.favorite ? " ⭐" : ""}${bragLink(b)}</span><span class="brand-m">${b.brand || ""}</span>${b.specs ? `<br><span class="specs">${b.specs}</span>` : ""}</span></div></td>
+      <td class="col-designer"><span class="designer">${b.brand || "—"}</span></td>
       <td><div class="conds"><span class="pill ${cc}">${b.condition || "—"}</span>${auth}</div></td>
-      <td class="num">${paidCell}</td><td class="num">${valCell}</td>
-      <td>${spark(seriesFor(b))}</td><td class="num">${glCell}</td></tr>`;
-  }).join("") || `<tr><td colspan="7" class="empty">No bags in this view.</td></tr>`;
+      <td class="num col-paid">${paidCell}</td><td class="num">${valCell}</td>
+      <td class="col-trend">${spark(seriesFor(b))}</td><td class="num">${glCell}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="empty">No ${brandFilter ? brandFilter + " " : ""}bags are ${tableFilter === "up" ? "gaining" : tableFilter === "down" ? "losing" : "here"} right now.</td></tr>`;
 }
 
 /* ---------- lookbook ---------- */
@@ -694,7 +768,14 @@ function renderInsights() {
   // Total value over time (carry-forward sum across bags)
   const dateSet = new Set();
   for (const id in S.history) for (const p of S.history[id]) dateSet.add(p.date);
-  const dates = [...dateSet].sort();
+  // Only chart from the first day most of the collection has a real snapshot —
+  // earlier dates would be one or two seeded bags plus today's value carried
+  // backwards for everything else, which draws a cliff that never happened.
+  const act = activeBags();
+  const covered = d => act.filter(b => (S.history[b.id] || []).some(p => p.date <= d)).length;
+  const allDates = [...dateSet].sort();
+  const firstReal = allDates.findIndex(d => covered(d) >= Math.max(2, act.length / 2));
+  const dates = firstReal < 0 ? allDates : allDates.slice(firstReal);
   const series = dates.map(d => {
     let sum = 0;
     for (const b of activeBags()) {
@@ -709,8 +790,8 @@ function renderInsights() {
   const note = document.getElementById("lineNote");
   if (series.length >= 2) {
     const first = series[0].value, last = series[series.length - 1].value, ch = last - first;
-    note.innerHTML = `<span class="delta ${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"} ${fmt(Math.abs(ch))}</span> since ${series[0].date}`;
-  } else note.textContent = "Value history builds as you update the collection.";
+    note.innerHTML = `<span class="delta ${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"} ${fmt(Math.abs(ch))}</span> since ${series[0].date} · weekly eBay comps`;
+  } else note.textContent = "The line starts once resale values have been recorded on two different days.";
 
   renderHouses(); renderLeaderboards(); renderAchievements();
 }
@@ -796,7 +877,7 @@ function renderAchievements() {
   el.innerHTML = defs.map(d => `<div class="badge ${d.on ? "unlocked" : "locked"}"><span class="b-emoji">${d.on ? d.emoji : "🔒"}</span><div><div class="b-name">${d.name}</div><div class="b-desc">${d.desc}</div></div></div>`).join("");
 }
 function areaChart(series) {
-  if (series.length < 2) return `<div class="empty">Not enough history yet — values plot here as they change over time.</div>`;
+  if (series.length < 2) return `<div class="empty">Not enough history yet — the weekly refresh adds a point each time it runs.</div>`;
   const w = 640, h = 200, padL = 8, padR = 8, padT = 14, padB = 22;
   const vals = series.map(s => s.value), max = Math.max(...vals) * 1.08, min = Math.min(...vals) * 0.92;
   const rng = (max - min) || 1;
@@ -882,22 +963,32 @@ function renderAll() {
   renderKPIs(); renderTable(); renderLookbook(); renderInsights(); renderWishlist(); renderArchived();
   const active = activeBags().length, arch = archivedBags().length;
   document.getElementById("foot").innerHTML =
-    `${active} in the collection · ${arch} archived · ${S.wishlist.length} on the wishlist · file dated ${SEED.generatedAt}<br>` +
-    `Edits save in this browser — <strong>Export</strong> to bake them into the repo · <code>python3 refresh.py --fetch</code> updates resale values`;
+    `${active} in the collection · ${arch} archived · ${S.wishlist.length} on the wishlist<br>` +
+    `Resale values refreshed ${SEED.generatedAt} from eBay comps · connect <strong>☁ Cloud</strong> so edits save everywhere`;
 }
 
 /* ---------- tabs ---------- */
 const PANELS = { table: "panel-table", lookbook: "panel-lookbook", insights: "panel-insights", wishlist: "panel-wishlist", archived: "panel-archived" };
 const NO_KPI = new Set(["wishlist", "archived"]);
-document.getElementById("tabs").addEventListener("click", e => {
-  const t = e.target.closest(".tab"); if (!t) return;
-  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-  t.classList.add("active");
-  const tab = t.dataset.tab;
+function showTab(tab, remember = true) {
+  if (!PANELS[tab]) tab = "table";
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === tab));
   for (const [k, id] of Object.entries(PANELS)) document.getElementById(id).hidden = (k !== tab);
   document.getElementById("kpis").hidden = NO_KPI.has(tab);
   document.getElementById("btnAdd").hidden = NO_KPI.has(tab);
+  if (remember) { try { localStorage.setItem("purse.tab", tab); } catch (_) {} }
+}
+document.getElementById("tabs").addEventListener("click", e => {
+  const t = e.target.closest(".tab"); if (!t) return;
+  showTab(t.dataset.tab);
 });
+/* Phones open on the Lookbook (photos read better than columns there); desktops on the table.
+   A tab the viewer picked earlier wins on either. */
+(() => {
+  let saved = null; try { saved = localStorage.getItem("purse.tab"); } catch (_) {}
+  const phone = window.matchMedia("(max-width: 760px)").matches;
+  showTab(saved || (phone ? "lookbook" : "table"), false);
+})();
 
 /* ---------- table filter ---------- */
 document.getElementById("filters").addEventListener("click", e => {
@@ -905,6 +996,17 @@ document.getElementById("filters").addEventListener("click", e => {
   document.querySelectorAll("#filters .chip").forEach(c => c.classList.remove("active"));
   chip.classList.add("active"); tableFilter = chip.dataset.f; renderTable();
 });
+document.getElementById("brandBar").addEventListener("click", e => {
+  const chip = e.target.closest(".chip"); if (!chip) return;
+  brandFilter = chip.dataset.b || null; renderTable();
+});
+/* ---------- Data menu ---------- */
+const dataBtn = document.getElementById("btnData"), dataMenu = document.getElementById("dataMenu");
+function closeMenu() { dataMenu.hidden = true; dataBtn.setAttribute("aria-expanded", "false"); }
+dataBtn.addEventListener("click", e => { e.stopPropagation(); const open = dataMenu.hidden; dataMenu.hidden = !open; dataBtn.setAttribute("aria-expanded", String(open)); if (open) dataMenu.querySelector(".menu-item").focus(); });
+dataMenu.addEventListener("click", e => { if (e.target.closest(".menu-item")) closeMenu(); });
+document.addEventListener("click", e => { if (!dataMenu.hidden && !e.target.closest(".menu-wrap")) closeMenu(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !dataMenu.hidden) { closeMenu(); dataBtn.focus(); } });
 // click a column header to sort; click again to reverse
 document.querySelector("#panel-table thead").addEventListener("click", e => {
   const th = e.target.closest("th[data-sort]"); if (!th) return;
